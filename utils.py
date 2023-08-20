@@ -36,11 +36,10 @@ def get_text(text_path):
 	if validators.url(url):
 		headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",}
 		response = requests.get(url, headers=headers)
-		if response.status_code == 200:
-			soup = BeautifulSoup(response.content, "html.parser")
-			text = soup.get_text()
-		else:
+		if response.status_code != 200:
 			raise ValueError(f"Invalid URL! Status code {response.status_code}.")
+		soup = BeautifulSoup(response.content, "html.parser")
+		text = soup.get_text()
 	elif suffix == ".pdf":
 		full_text = ""
 		num_pages = 0
@@ -49,12 +48,10 @@ def get_text(text_path):
 				num_pages += 1
 				text = page.get_text()
 				full_text += text + "\n"
-		text = f"This is a {num_pages}-page document.\n" + full_text
+		text = f"This is a {num_pages}-page document.\n{full_text}"
 	elif ".doc" in suffix:
 		doc = docx.Document(text_path)
-		fullText = []
-		for para in doc.paragraphs:
-			fullText.append(para.text)
+		fullText = [para.text for para in doc.paragraphs]
 		text = '\n'.join(fullText)
 	elif suffix == ".txt":
 		with open(text_path, 'r', encoding='utf8') as f:
@@ -77,9 +74,7 @@ def get_summary(chunk):
 	messages = [
 				{"role": "user", "content": content}
 			]
-	summary = chatGPT_api(messages).content
-
-	return summary
+	return chatGPT_api(messages).content
 
 def store_info(text, memory_path, chunk_sz = 700, max_memory = 100):
 	info = []
@@ -118,8 +113,7 @@ def store_info(text, memory_path, chunk_sz = 700, max_memory = 100):
 		print(f"Finish storing info in {memory_path}")
 
 def get_question():
-	q = input("Enter your question: ")
-	return q
+	return input("Enter your question: ")
 
 def load_info(memory_path):
 	with open(memory_path, 'r', encoding='utf8') as f:
@@ -140,8 +134,7 @@ def retrieve(q_embd, info):
 	cos_sims = text_cos_sims + summary_cos_sims
 	top_args = np.argsort(cos_sims).tolist()
 	top_args.reverse()
-	indices = top_args[0:3]
-	return indices
+	return top_args[:3]
 
 def chatGPT_api(messages):
 	completion = openai.ChatCompletion.create(
@@ -173,24 +166,21 @@ def generate_answer(q, retrieved_indices, info):
 		sorted_indices = sorted(retrieved_indices)
 		retrieved_text = [info[idx]["text"] for idx in sorted_indices]
 		content = get_qa_content(q, retrieved_text)
-		if len(tokenizer.encode(content)) > 3800:
-			retrieved_indices = retrieved_indices[:-1]
-			print("Contemplating...")
-			if not retrieved_indices:
-				raise ValueError("Failed to respond.")
-		else:
+		if len(tokenizer.encode(content)) <= 3800:
 			break
+		retrieved_indices = retrieved_indices[:-1]
+		print("Contemplating...")
+		if not retrieved_indices:
+			raise ValueError("Failed to respond.")
 	messages = [
 		{"role": "user", "content": content}
 	]
-	answer = chatGPT_api(messages).content
-	return answer
+	return chatGPT_api(messages).content
 
 def memorize(text):
 	sha = hashlib.sha256(text.encode('UTF-8')).hexdigest()
 	memory_path = f"memory/{sha}.json"
-	file_exists = os.path.exists(memory_path)
-	if file_exists:
+	if file_exists := os.path.exists(memory_path):
 		print(f"Detected cached memories in {memory_path}")
 	else:
 		print("Memorizing...")
@@ -200,8 +190,7 @@ def memorize(text):
 def answer(q, info):
 	q_embd = get_embedding(q, model="text-embedding-ada-002")
 	retrieved_indices = retrieve(q_embd, info)
-	answer = generate_answer(q, retrieved_indices, info)
-	return answer
+	return generate_answer(q, retrieved_indices, info)
 
 def chat(memory_path):
 	info = load_info(memory_path)
